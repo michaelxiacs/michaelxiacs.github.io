@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Monthly New COVID-19 Cases in the U.S. (2020–2023)</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      font-family: sans-serif;
+      font-size: 18px;
+    }
+
+    h2 {
+      text-align: center;
+      margin-top: 20px;
+      font-size: 28px;
+    }
+
+    #container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    #viz {
+      margin-top: 20px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .tooltip {
+      font-size: 14px;
+      text-anchor: middle;
+      fill: black;
+      pointer-events: none;
+    }
+
+    .dot {
+      fill: steelblue;
+      stroke: white;
+      stroke-width: 1.5px;
+    }
+
+    #slide-title {
+      font-weight: bold;
+      margin: 0 10px;
+      font-size: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Monthly New COVID-19 Cases in the U.S. (2020–2023)</h2>
+  <div id="container">
+    <div>
+      <button id="prevBtn" onclick="prevSlide()">Previous</button>
+      <span id="slide-title"></span>
+      <button id="nextBtn" onclick="nextSlide()">Next</button>
+    </div>
+    <div id="viz"></div>
+  </div>
+
+  <script>
+    const years = ["2020", "2021", "2022", "2023"];
+    let currentSlide = 0;
+    let monthlyDataByYear = {};
+    let globalMax = 0;
+
+    function processData(data) {
+      const parseDate = d3.timeParse("%Y-%m-%d");
+      const grouped = d3.groups(data, d => {
+        const date = parseDate(d.date);
+        return `${date.getFullYear()}-${date.getMonth()}`;
+      });
+
+      const monthlyData = {};
+      let prevTotal = 0;
+
+      grouped.forEach(([key, values]) => {
+        const [year, month] = key.split("-").map(Number);
+        const last = values[values.length - 1];
+        const currentTotal = +last.cases;
+        const newCases = currentTotal - prevTotal;
+
+        if (!monthlyData[year]) monthlyData[year] = [];
+        monthlyData[year][month] = { month, cases: newCases };
+
+        prevTotal = currentTotal;
+      });
+
+      years.forEach(year => {
+        const arr = [];
+        for (let m = 0; m < 12; m++) {
+          const point = monthlyData[year]?.[m] || { month: m, cases: 0 };
+          arr.push(point);
+          if (point.cases > globalMax) globalMax = point.cases;
+        }
+        monthlyDataByYear[year] = arr;
+      });
+    }
+
+    function drawSlide() {
+      const year = years[currentSlide];
+      d3.select("#slide-title").text(`${year}`);
+
+      const data = monthlyDataByYear[year];
+      d3.select("#viz").html("");
+
+      const width = 1000;
+      const height = 500;
+      const margin = { top: 40, right: 30, bottom: 40, left: 100 };
+
+      const svg = d3.select("#viz")
+        .append("svg")
+        .attr("width", width)
+        .attr("height", height);
+
+      const x = d3.scaleLinear()
+        .domain([0, 11])
+        .range([margin.left, width - margin.right]);
+
+      const y = d3.scaleLinear()
+        .domain([0, globalMax]).nice()
+        .range([height - margin.bottom, margin.top]);
+
+      const xAxis = d3.axisBottom(x).tickFormat(i =>
+        ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+         "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][i]);
+
+      const yAxis = d3.axisLeft(y);
+
+      svg.append("g")
+        .attr("transform", `translate(0,${height - margin.bottom})`)
+        .call(xAxis);
+
+      svg.append("g")
+        .attr("transform", `translate(${margin.left},0)`)
+        .call(yAxis);
+
+      const line = d3.line()
+        .x(d => x(d.month))
+        .y(d => y(d.cases));
+
+      svg.append("path")
+        .datum(data)
+        .attr("fill", "none")
+        .attr("stroke", "steelblue")
+        .attr("stroke-width", 2)
+        .attr("d", line);
+
+      svg.selectAll(".dot")
+        .data(data)
+        .enter()
+        .append("circle")
+        .attr("class", "dot")
+        .attr("cx", d => x(d.month))
+        .attr("cy", d => y(d.cases))
+        .attr("r", 4)
+        .on("mouseover", function(event, d) {
+          d3.select(this).transition().attr("r", 6);
+          svg.append("text")
+            .attr("class", "tooltip")
+            .attr("id", `tooltip-${d.month}`)
+            .attr("x", x(d.month))
+            .attr("y", y(d.cases) - 10)
+            .text(d.cases.toLocaleString());
+        })
+        .on("mouseout", function(event, d) {
+          d3.select(this).transition().attr("r", 4);
+          svg.select(`#tooltip-${d.month}`).remove();
+        });
+
+      svg.append("text")
+  .attr("x", width - margin.right)
+  .attr("y", margin.top)
+  .attr("text-anchor", "end")
+  .attr("fill", "darkred")
+  .attr("font-size", "14px")
+  .text(() => {
+    if (year === "2020") return "Initial outbreak in March.";
+    if (year === "2021") return "Delta variant surge led to renewed national spread.";
+    if (year === "2022") return "Omicron variant early spike.";
+    if (year === "2023") return "Cases taper off.";
+    return "";
+  });
+
+      d3.select("#prevBtn").attr("disabled", currentSlide === 0 ? true : null);
+      d3.select("#nextBtn").attr("disabled", currentSlide === years.length - 1 ? true : null);
+    }
+
+    function nextSlide() {
+      if (currentSlide < years.length - 1) {
+        currentSlide++;
+        drawSlide();
+      }
+    }
+
+    function prevSlide() {
+      if (currentSlide > 0) {
+        currentSlide--;
+        drawSlide();
+      }
+    }
+
+    d3.csv("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us.csv")
+      .then(raw => {
+        processData(raw);
+        drawSlide();
+      });
+  </script>
+</body>
+</html>
